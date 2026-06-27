@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRequestSession } from '@/lib/auth';
+import { getServerSession } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = getRequestSession(req);
+  const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = getDb();
@@ -32,8 +32,8 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = getRequestSession(req);
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if (session.role !== 'director') return NextResponse.json({ error: 'Only director can delete tasks' }, { status: 403 });
 

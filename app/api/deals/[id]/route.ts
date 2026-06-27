@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRequestSession } from '@/lib/auth';
+import { getServerSession } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 
 const STAGE_ORDER = ['lead', 'qualified', 'proposal', 'negotiation', 'closed_won', 'closed_lost'];
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = getRequestSession(req);
+  const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = getDb();
@@ -58,7 +58,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
 }
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
-  const session = getRequestSession(req);
+  const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = getDb();

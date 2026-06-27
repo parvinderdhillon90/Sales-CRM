@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRequestSession } from '@/lib/auth';
+import { getServerSession } from '@/lib/auth';
 import { getDb } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
-  const session = getRequestSession(req);
+  const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = getDb();
@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const session = getRequestSession(req);
+  const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const db = getDb();
