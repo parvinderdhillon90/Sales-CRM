@@ -27,7 +27,7 @@ export default function ReportsPage() {
       fetch('/api/reports').then(r => r.json()),
       fetch(`/api/targets?month=${now.getMonth() + 1}&year=${now.getFullYear()}`).then(r => r.json()),
     ]);
-    if (me_.role !== 'director') { router.push('/dashboard'); return; }
+    if (!['director', 'cmd'].includes(me_.role)) { router.push('/dashboard'); return; }
     setMe(me_); setStats(s); setTargets(t);
     const tf: Record<number, { revenue: string; deals: string }> = {};
     t.forEach((tg: any) => { tf[tg.user_id] = { revenue: String(tg.revenue_target || ''), deals: String(tg.deal_count_target || '') }; });
@@ -199,7 +199,7 @@ export default function ReportsPage() {
                 <tr key={d.id} className="border-b border-slate-50 hover:bg-slate-50">
                   <td className="py-2.5 pr-4">
                     <Link href={`/dashboard/deals/${d.id}`} className="text-blue-600 hover:underline font-medium">{d.title}</Link>
-                    <div className="text-xs text-slate-400">{d.client_company}</div>
+                    <div className="text-xs text-slate-400">{d.company}</div>
                   </td>
                   <td className="py-2.5 pr-4 text-slate-600">{d.assigned_user_name}</td>
                   <td className="py-2.5 pr-4">

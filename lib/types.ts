@@ -1,9 +1,10 @@
-export type Role = 'director' | 'manager';
+export type Role = 'cmd' | 'director' | 'manager';
 export type Zone = 'south_west' | 'north';
 export type DealStage = 'lead' | 'qualified' | 'proposal' | 'negotiation' | 'closed_won' | 'closed_lost';
 export type DealTemperature = 'hot' | 'warm' | 'cold';
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'overdue';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type AlertSeverity = 'critical' | 'warning' | 'info';
 export type ActivityType =
   | 'created'
   | 'call'
@@ -53,6 +54,7 @@ export interface Deal {
   value: number | null;
   stage: DealStage;
   temperature: DealTemperature;
+  probability: number;
   expected_close_date: string | null;
   last_contact_date: string | null;
   last_contact_summary: string | null;
@@ -119,10 +121,38 @@ export interface Target {
   year: number;
   revenue_target: number | null;
   deal_count_target: number | null;
+  pipeline_coverage_target: number | null;
   created_by: number;
   achieved_revenue?: number;
   achieved_deals?: number;
   created_at: string;
+}
+
+export interface Alert {
+  id: number;
+  rule_type: string;
+  severity: AlertSeverity;
+  message: string;
+  deal_id: number | null;
+  about_user_id: number | null;
+  recipient_id: number;
+  acknowledged_at: string | null;
+  created_at: string;
+}
+
+export interface TeamMemberStat {
+  user_id: number;
+  name: string;
+  zone: Zone | null;
+  role: Role;
+  revenue_target: number;
+  achieved_revenue: number;
+  weighted_pipeline: number;
+  pipeline_coverage: number;
+  total_deals: number;
+  hot_deals: number;
+  stale_deals: number;
+  is_team_row?: boolean;
 }
 
 export interface DashboardStats {
@@ -135,11 +165,14 @@ export interface DashboardStats {
   pending_tasks: number;
   unread_messages: number;
   pipeline_value: number;
+  weighted_pipeline: number;
   closed_won_this_month: number;
   closed_won_value_this_month: number;
   deals_closing_soon: number;
   zone_stats: ZoneStat[];
   stage_breakdown: Record<string, number>;
+  team_members?: TeamMemberStat[];
+  my_alerts?: Alert[];
 }
 
 export interface ZoneStat {

@@ -22,6 +22,13 @@ export function getDb(): Database.Database {
     // Seed demo data on first run (no users present yet)
     const empty = (_db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c === 0;
     if (empty) seedData(_db);
+
+    // Ensure CMD account exists — cannot go in seedData (needs bcrypt) or migration (SQL can't hash)
+    const hasParvinder = _db.prepare('SELECT id FROM users WHERE email = ?').get('parvinder@cinuniverse.com');
+    if (!hasParvinder) {
+      _db.prepare(`INSERT INTO users (name, email, password_hash, role, zone) VALUES (?, ?, ?, 'cmd', NULL)`)
+        .run('Parvinder Dhillon', 'parvinder@cinuniverse.com', bcrypt.hashSync('Parvinder@123', 10));
+    }
   }
   return _db;
 }

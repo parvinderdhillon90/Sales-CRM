@@ -4,12 +4,18 @@ import Link from 'next/link';
 import {
   TrendingUp, AlertTriangle, Flame, Clock, CheckSquare,
   MessageSquare, Users, Briefcase, Calendar, ArrowRight,
+  Bell, CheckCircle, Target,
 } from 'lucide-react';
 
 function fmt(n: number) {
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
   if (n >= 1000) return `₹${(n / 1000).toFixed(0)}K`;
   return `₹${n}`;
+}
+
+function pct(achieved: number, target: number) {
+  if (!target) return 0;
+  return Math.min(Math.round((achieved / target) * 100), 999);
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -20,10 +26,20 @@ const STAGE_COLORS: Record<string, string> = {
   lead: 'bg-gray-200', qualified: 'bg-blue-400', proposal: 'bg-purple-400',
   negotiation: 'bg-amber-400', closed_won: 'bg-green-500', closed_lost: 'bg-red-400',
 };
+const SEVERITY_STYLES: Record<string, string> = {
+  critical: 'bg-red-50 border-red-200 text-red-800',
+  warning:  'bg-amber-50 border-amber-200 text-amber-800',
+  info:     'bg-blue-50 border-blue-200 text-blue-800',
+};
+const SEVERITY_DOT: Record<string, string> = {
+  critical: 'bg-red-500',
+  warning:  'bg-amber-400',
+  info:     'bg-blue-400',
+};
 
 export default function DashboardPage() {
   const [stats, setStats] = useState<any>(null);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser]   = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -33,11 +49,28 @@ export default function DashboardPage() {
     ]).then(([u, s]) => { setUser(u); setStats(s); setLoading(false); });
   }, []);
 
+  function acknowledgeAlert(id: number) {
+    fetch('/api/alerts', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
+      .then(() => setStats((prev: any) => ({
+        ...prev,
+        my_alerts: prev.my_alerts?.filter((a: any) => a.id !== id),
+      })));
+  }
+
+  function acknowledgeAll() {
+    fetch('/api/alerts', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ all: true }) })
+      .then(() => setStats((prev: any) => ({ ...prev, my_alerts: [] })));
+  }
+
   if (loading) return <div className="flex items-center justify-center h-64 text-slate-400">Loading...</div>;
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+
+  const isCmd      = user?.role === 'cmd';
+  const isDirector = user?.role === 'director';
+  const isLeader   = isCmd || isDirector;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -47,7 +80,7 @@ export default function DashboardPage() {
         <p className="text-slate-500 text-sm mt-0.5">{today}</p>
       </div>
 
-      {/* Alert banner for critical issues */}
+      {/* Critical alert banner */}
       {(stats.stale_deals > 0 || stats.overdue_tasks > 0) && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
@@ -61,7 +94,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Stat cards */}
+      {/* Top stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard icon={<TrendingUp className="w-5 h-5 text-blue-600" />} bg="bg-blue-50"
           label="Pipeline Value" value={fmt(stats.pipeline_value)} sub={`${stats.total_deals} active deals`} />
@@ -75,11 +108,82 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left column */}
+        {/* ── Left / main column ────────────────────────────────────────── */}
         <div className="lg:col-span-2 space-y-6">
 
-          {/* Director: Zone Performance */}
-          {user?.role === 'director' && stats.zone_stats?.length > 0 && (
+          {/* ── CMD / Director: Team Scorecard ───────────────────────────── */}
+          {isLeader && stats.team_members?.length > 0 && (
+            <div className="card p-5">
+              <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <Target className="w-4 h-4 text-slate-500" />
+                Team Scorecard
+                <span className="text-xs font-normal text-slate-400 ml-1">
+                  — {new Date().toLocaleString('en-IN', { month: 'long', year: 'numeric' })}
+                </span>
+              </h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      {['Member', 'Target', 'Achieved', 'Gap', '%', 'W. Pipeline', 'Coverage'].map(h => (
+                        <th key={h} className="text-left text-xs text-slate-500 font-medium pb-2 pr-3 whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.team_members.map((m: any) => {
+                      const gap = Math.max(0, m.revenue_target - m.achieved_revenue);
+                      const done = pct(m.achieved_revenue, m.revenue_target);
+                      const coverage = m.pipeline_coverage;
+                      const coverageLow = coverage < 2.5 && m.revenue_target > 0;
+                      const isTeam = m.is_team_row;
+                      return (
+                        <tr key={m.user_id}
+                          className={`border-b border-slate-50 ${isTeam ? 'bg-slate-50 font-semibold' : 'hover:bg-slate-50'}`}>
+                          <td className="py-2.5 pr-3">
+                            <span className={isTeam ? 'text-slate-700' : 'text-slate-800'}>{m.name}</span>
+                            {m.zone && <div className="text-[11px] text-slate-400">{m.zone === 'south_west' ? 'South & West' : 'North'}</div>}
+                          </td>
+                          <td className="py-2.5 pr-3 text-slate-600">{m.revenue_target > 0 ? fmt(m.revenue_target) : '—'}</td>
+                          <td className="py-2.5 pr-3">
+                            <span className={m.achieved_revenue > 0 ? 'text-green-700 font-semibold' : 'text-slate-400'}>
+                              {m.achieved_revenue > 0 ? fmt(m.achieved_revenue) : '₹0'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            {gap > 0 ? <span className="text-red-600">{fmt(gap)}</span> : <span className="text-green-600">✓</span>}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <div className="flex items-center gap-1.5">
+                              <div className="w-12 bg-slate-100 rounded-full h-1.5">
+                                <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${Math.min(done, 100)}%` }} />
+                              </div>
+                              <span className={done >= 80 ? 'text-green-700' : done >= 50 ? 'text-amber-600' : 'text-red-600'}>
+                                {done}%
+                              </span>
+                            </div>
+                          </td>
+                          <td className="py-2.5 pr-3 text-slate-700">{fmt(m.weighted_pipeline)}</td>
+                          <td className="py-2.5 pr-3">
+                            <span className={coverageLow ? 'text-red-600 font-semibold' : 'text-green-700'}>
+                              {m.revenue_target > 0 ? `${coverage.toFixed(1)}×` : '—'}
+                            </span>
+                            {coverageLow && <span className="ml-1 text-[10px] text-red-500">↓2.5×</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  W. Pipeline = Σ(deal value × win probability). Coverage target: 2.5×.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ── Director only: Zone Performance ─────────────────────────── */}
+          {isDirector && stats.zone_stats?.length > 0 && (
             <div className="card p-5">
               <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
                 <Users className="w-4 h-4 text-slate-500" /> Zone Performance
@@ -103,9 +207,9 @@ export default function DashboardPage() {
                           {z.hot_deals > 0 ? <span className="text-red-600 font-semibold">{z.hot_deals}</span> : <span className="text-slate-400">0</span>}
                         </td>
                         <td className="py-2.5 pr-3">
-                          {z.stale_deals > 0 ? (
-                            <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs font-semibold">{z.stale_deals}</span>
-                          ) : <span className="text-green-600 font-medium">0 ✓</span>}
+                          {z.stale_deals > 0
+                            ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs font-semibold">{z.stale_deals}</span>
+                            : <span className="text-green-600 font-medium">0 ✓</span>}
                         </td>
                         <td className="py-2.5 pr-3 font-medium">{fmt(z.pipeline_value)}</td>
                         <td className="py-2.5 pr-3">{z.closed_won_month > 0 ? <span className="text-green-600 font-semibold">{z.closed_won_month}</span> : '0'}</td>
@@ -115,9 +219,9 @@ export default function DashboardPage() {
                           </span>
                         </td>
                         <td className="py-2.5 pr-3">
-                          {z.date_slips_total > 0 ? (
-                            <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-xs">{z.date_slips_total}</span>
-                          ) : '0'}
+                          {z.date_slips_total > 0
+                            ? <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-xs">{z.date_slips_total}</span>
+                            : '0'}
                         </td>
                       </tr>
                     ))}
@@ -127,7 +231,56 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Stage breakdown */}
+          {/* ── CMD: Zone Performance ────────────────────────────────────── */}
+          {isCmd && stats.zone_stats?.length > 0 && (
+            <div className="card p-5">
+              <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                <Users className="w-4 h-4 text-slate-500" /> Zone Performance
+              </h2>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100">
+                      {['Manager', 'Zone', 'Active', 'Hot', 'Stale', 'Pipeline', 'Won (Month)', 'Avg Days', 'Date Slips'].map(h => (
+                        <th key={h} className="text-left text-xs text-slate-500 font-medium pb-2 pr-3">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.zone_stats.map((z: any) => (
+                      <tr key={z.zone} className="border-b border-slate-50 hover:bg-slate-50">
+                        <td className="py-2.5 pr-3 font-medium text-slate-800">{z.manager_name}</td>
+                        <td className="py-2.5 pr-3 text-slate-500">{z.zone === 'south_west' ? 'South & West' : 'North'}</td>
+                        <td className="py-2.5 pr-3">{z.total_deals}</td>
+                        <td className="py-2.5 pr-3">
+                          {z.hot_deals > 0 ? <span className="text-red-600 font-semibold">{z.hot_deals}</span> : <span className="text-slate-400">0</span>}
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          {z.stale_deals > 0
+                            ? <span className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs font-semibold">{z.stale_deals}</span>
+                            : <span className="text-green-600 font-medium">0 ✓</span>}
+                        </td>
+                        <td className="py-2.5 pr-3 font-medium">{fmt(z.pipeline_value)}</td>
+                        <td className="py-2.5 pr-3">{z.closed_won_month > 0 ? <span className="text-green-600 font-semibold">{z.closed_won_month}</span> : '0'}</td>
+                        <td className="py-2.5 pr-3">
+                          <span className={z.avg_days_since_contact > 10 ? 'text-red-600 font-semibold' : 'text-slate-700'}>
+                            {Math.round(z.avg_days_since_contact)}d
+                          </span>
+                        </td>
+                        <td className="py-2.5 pr-3">
+                          {z.date_slips_total > 0
+                            ? <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-xs">{z.date_slips_total}</span>
+                            : '0'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── Stage breakdown ─────────────────────────────────────────── */}
           <div className="card p-5">
             <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
               <Briefcase className="w-4 h-4 text-slate-500" /> Pipeline by Stage
@@ -136,12 +289,12 @@ export default function DashboardPage() {
               {Object.entries(STAGE_LABELS).filter(([s]) => !['closed_won', 'closed_lost'].includes(s)).map(([stage, label]) => {
                 const count = stats.stage_breakdown?.[stage] || 0;
                 const max = Math.max(...Object.values(stats.stage_breakdown || {}).map(Number), 1);
-                const pct = Math.round((count / max) * 100);
+                const p = Math.round((count / max) * 100);
                 return (
                   <div key={stage} className="flex items-center gap-3">
                     <span className="text-sm text-slate-600 w-24 shrink-0">{label}</span>
                     <div className="flex-1 bg-slate-100 rounded-full h-2">
-                      <div className={`h-2 rounded-full ${STAGE_COLORS[stage]}`} style={{ width: `${pct}%` }} />
+                      <div className={`h-2 rounded-full ${STAGE_COLORS[stage]}`} style={{ width: `${p}%` }} />
                     </div>
                     <span className="text-sm font-medium text-slate-700 w-6 text-right">{count}</span>
                   </div>
@@ -150,7 +303,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Stale deals */}
+          {/* ── Stale deals ─────────────────────────────────────────────── */}
           {stats.stale_deal_list?.length > 0 && (
             <div className="card p-5">
               <div className="flex items-center justify-between mb-4">
@@ -167,7 +320,7 @@ export default function DashboardPage() {
                     className="flex items-center justify-between p-3 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors border border-amber-100">
                     <div>
                       <div className="font-medium text-sm text-slate-800">{d.title}</div>
-                      <div className="text-xs text-slate-500">{d.client_company} · {d.assigned_user_name}</div>
+                      <div className="text-xs text-slate-500">{d.company} · {d.assigned_user_name}</div>
                     </div>
                     <div className="text-right shrink-0 ml-4">
                       <div className="text-sm font-bold text-red-600">{d.days_since_contact}d ago</div>
@@ -179,8 +332,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Date slip report (director) */}
-          {user?.role === 'director' && stats.slip_deals?.length > 0 && (
+          {/* ── Date slippage (leader views) ────────────────────────────── */}
+          {isLeader && stats.slip_deals?.length > 0 && (
             <div className="card p-5">
               <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-amber-500" /> Closing Date Slippage
@@ -204,7 +357,7 @@ export default function DashboardPage() {
                       <td className="py-2 pr-3 text-slate-600">{d.assigned_user_name}</td>
                       <td className="py-2 pr-3">
                         <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded text-xs font-semibold">
-                          {d.close_date_change_count}x
+                          {d.close_date_change_count}×
                         </span>
                       </td>
                       <td className="py-2 pr-3">
@@ -224,8 +377,58 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Right column */}
+        {/* ── Right column ────────────────────────────────────────────────── */}
         <div className="space-y-4">
+
+          {/* Alert Centre (leader only) */}
+          {isLeader && (
+            <div className="card p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-slate-500" />
+                  Alert Centre
+                  {stats.my_alerts?.length > 0 && (
+                    <span className="bg-red-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 leading-none">
+                      {stats.my_alerts.length}
+                    </span>
+                  )}
+                </h3>
+                {stats.my_alerts?.length > 0 && (
+                  <button onClick={acknowledgeAll}
+                    className="text-[11px] text-slate-400 hover:text-blue-600 transition-colors">
+                    Clear all
+                  </button>
+                )}
+              </div>
+              {stats.my_alerts?.length === 0 ? (
+                <div className="flex items-center gap-2 text-green-600 text-sm py-2">
+                  <CheckCircle className="w-4 h-4" /> All clear
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {stats.my_alerts.map((a: any) => (
+                    <div key={a.id} className={`border rounded-lg p-3 ${SEVERITY_STYLES[a.severity]}`}>
+                      <div className="flex items-start gap-2">
+                        <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${SEVERITY_DOT[a.severity]}`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs leading-snug">{a.message}</p>
+                          {a.deal_title && a.deal_id && (
+                            <Link href={`/dashboard/deals/${a.deal_id}`}
+                              className="text-[11px] underline mt-0.5 inline-block opacity-70 hover:opacity-100">
+                              View deal
+                            </Link>
+                          )}
+                        </div>
+                        <button onClick={() => acknowledgeAlert(a.id)}
+                          className="text-[10px] opacity-60 hover:opacity-100 shrink-0 mt-0.5">✕</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Quick stats */}
           <div className="card p-4 space-y-3">
             <h3 className="font-semibold text-slate-700 text-sm">Quick Stats</h3>
@@ -234,6 +437,12 @@ export default function DashboardPage() {
                 <span className="text-slate-500">Total Clients</span>
                 <span className="font-semibold">{stats.total_clients}</span>
               </div>
+              {isLeader && stats.weighted_pipeline > 0 && (
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span className="text-slate-500">Weighted Pipeline</span>
+                  <span className="font-semibold text-blue-700">{fmt(stats.weighted_pipeline)}</span>
+                </div>
+              )}
               <div className="flex justify-between py-1.5 border-b border-slate-50">
                 <span className="text-slate-500">Closing in 7 days</span>
                 <span className={`font-semibold ${stats.deals_closing_soon > 0 ? 'text-green-600' : 'text-slate-400'}`}>
@@ -259,7 +468,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Quick links */}
+          {/* Quick actions */}
           <div className="card p-4">
             <h3 className="font-semibold text-slate-700 text-sm mb-3">Quick Actions</h3>
             <div className="space-y-2">

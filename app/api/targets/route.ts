@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (session.role !== 'director') return NextResponse.json({ error: 'Only director can set targets' }, { status: 403 });
+  if (!['cmd', 'director'].includes(session.role)) return NextResponse.json({ error: 'Only cmd or director can set targets' }, { status: 403 });
 
   const db = getDb();
   const body = await req.json();
