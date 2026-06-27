@@ -1,10 +1,9 @@
 -- Migration 003: CMD role, deal probability, pipeline coverage, alerts
+-- PRAGMA foreign_keys = OFF is set at connection level in lib/db.ts before this runs.
+-- We use CREATE/INSERT/DROP/RENAME instead of RENAME/CREATE/INSERT/DROP to avoid
+-- corrupting FK references in child tables (the rename target never appears in child FKs).
 
--- SQLite cannot modify CHECK constraints via ALTER TABLE.
--- Recreate users table with 'cmd' added to the role constraint.
-PRAGMA legacy_alter_table = ON;
-ALTER TABLE users RENAME TO _users_backup;
-CREATE TABLE users (
+CREATE TABLE users_new (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   name          TEXT    NOT NULL,
   email         TEXT    UNIQUE NOT NULL,
@@ -14,9 +13,9 @@ CREATE TABLE users (
   last_login    DATETIME,
   created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
 );
-INSERT INTO users SELECT * FROM _users_backup;
-DROP TABLE _users_backup;
-PRAGMA legacy_alter_table = OFF;
+INSERT INTO users_new SELECT * FROM users;
+DROP TABLE users;
+ALTER TABLE users_new RENAME TO users;
 
 -- Win probability per deal for weighted pipeline forecasting
 ALTER TABLE deals ADD COLUMN probability REAL DEFAULT 0.3;

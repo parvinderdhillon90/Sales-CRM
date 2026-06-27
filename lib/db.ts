@@ -14,10 +14,12 @@ export function getDb(): Database.Database {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     _db = new Database(DB_PATH);
     _db.pragma('journal_mode = WAL');
-    _db.pragma('foreign_keys = ON');
-
-    // Run any pending migrations before anything else touches the schema
+    // FK must be OFF before migrations — migration 003 recreates the users table
+    // using DROP + RENAME, which requires FK enforcement to be disabled so SQLite
+    // doesn't reject the DROP of a table referenced by child tables.
+    _db.pragma('foreign_keys = OFF');
     runMigrations(_db);
+    _db.pragma('foreign_keys = ON');
 
     // Seed demo data on first run (no users present yet)
     const empty = (_db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c === 0;
@@ -205,11 +207,11 @@ function seedData(db: Database.Database) {
     insertTask.run('Call Ravi Kumar — ERP deal OVERDUE close date',   'Ravi Kumar (Delhi Enterprises) has not been contacted in 22 days. Expected close date was ' + d(-8) + '. Call immediately and update status.', R,    SI, D6,  d(-3), 'urgent', 'overdue');
     insertTask.run('Send revised proposal to Ravi Kumar',              'Include phased 18-month implementation roadmap and revised pricing. Director approval obtained for up to 8% discount.',                         R,    SI, D6,  d(1),  'urgent', 'pending');
     insertTask.run('Arrange Punjab Foods family meeting',              'Get all 3 family members (Sunita + 2 brothers) on a call. Try video conference. Cannot keep delaying this.',                                   R,    SI, D7,  d(2),  'high',   'pending');
-    insertTask.run('Follow up UP Textile Mills',                       'Arun Gupta has not been contacted in 48 days. Either qualify or mark cold. Get a clear answer on their vendor selection timeline.',            null, SI, D8,  d(3),  'medium', 'pending');
+    insertTask.run('Follow up UP Textile Mills',                       'Arun Gupta has not been contacted in 48 days. Either qualify or mark cold. Get a clear answer on their vendor selection timeline.',            R,    SI, D8,  d(3),  'medium', 'pending');
     insertTask.run('Set expected close date for Rajasthan Minerals',   'Mineral Export deal has NO expected close date set. This is mandatory. Either get commitment or remove from pipeline.',                         R,    SI, D10, d(1),  'high',   'pending');
     insertTask.run('Get final answer on TechCorp negotiation',         'Amit Sharma promised to revert in 2 days on 12% discount counter-offer. Follow up now.',                                                       R,    S,  D1,  d(1),  'high',   'pending');
-    insertTask.run('Follow up Priya Mehta — proposal review',         'Fashion Hub proposal sent 6 days ago. Priya was reviewing with CA. Time to follow up and address any concerns.',                               null, S,  D2,  d(2),  'medium', 'pending');
-    insertTask.run('Contact Kerala Spices for requirements doc',       'Vikram Nair was supposed to send technical requirements doc 2 weeks ago. Follow up urgently. Deal is going stale.',                            null, S,  D3,  d(1),  'high',   'pending');
+    insertTask.run('Follow up Priya Mehta — proposal review',         'Fashion Hub proposal sent 6 days ago. Priya was reviewing with CA. Time to follow up and address any concerns.',                               R,    S,  D2,  d(2),  'medium', 'pending');
+    insertTask.run('Contact Kerala Spices for requirements doc',       'Vikram Nair was supposed to send technical requirements doc 2 weeks ago. Follow up urgently. Deal is going stale.',                            R,    S,  D3,  d(1),  'high',   'pending');
     insertTask.run('Q3 target review call with Rajesh',               'Monthly performance review. Prepare pipeline summary and deal status update.',                                                                   R,    S,  null, d(5),  'medium', 'pending');
 
     // =====================================================================
