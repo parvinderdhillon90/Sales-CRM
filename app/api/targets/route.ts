@@ -1,39 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth';
-import { getDb } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
   const { searchParams } = new URL(req.url);
-  const month = searchParams.get('month') || String(new Date().getMonth() + 1);
-  const year = searchParams.get('year') || String(new Date().getFullYear());
+  const monthInt = parseInt(searchParams.get('month') || String(new Date().getMonth() + 1));
+  const yearInt = parseInt(searchParams.get('year') || String(new Date().getFullYear()));
 
-  const targets = db.prepare(`
+  const targets = await prisma.$queryRaw<any[]>`
     SELECT t.*, u.name as user_name, u.zone,
       COALESCE((
-        SELECT SUM(d.value)
+        SELECT SUM(d.value)::FLOAT
         FROM deals d
         WHERE d.assigned_to = t.user_id
           AND d.stage = 'closed_won'
-          AND strftime('%m', d.updated_at) = printf('%02d', t.month)
-          AND strftime('%Y', d.updated_at) = CAST(t.year AS TEXT)
+          AND EXTRACT(MONTH FROM d.updated_at) = t.month
+          AND EXTRACT(YEAR FROM d.updated_at) = t.year
       ), 0) as achieved_revenue,
       COALESCE((
-        SELECT COUNT(*)
+        SELECT COUNT(*)::INTEGER
         FROM deals d
         WHERE d.assigned_to = t.user_id
           AND d.stage = 'closed_won'
-          AND strftime('%m', d.updated_at) = printf('%02d', t.month)
-          AND strftime('%Y', d.updated_at) = CAST(t.year AS TEXT)
+          AND EXTRACT(MONTH FROM d.updated_at) = t.month
+          AND EXTRACT(YEAR FROM d.updated_at) = t.year
       ), 0) as achieved_deals
     FROM targets t
     LEFT JOIN users u ON t.user_id = u.id
-    WHERE t.month = ? AND t.year = ?
+    WHERE t.month = ${monthInt} AND t.year = ${yearInt}
     ORDER BY u.zone
-  `).all(month, year);
+  `;
 
   return NextResponse.json(targets);
 }
@@ -41,9 +40,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if (!['cmd', 'director'].includes(session.role)) return NextResponse.json({ error: 'Only cmd or director can set targets' }, { status: 403 });
+  if (!['cmd', 'director'].includes(session.role)) {
+    return NextResponse.json({ error: 'Only cmd or director can set targets' }, { status: 403 });
+  }
 
-  const db = getDb();
   const body = await req.json();
   const { user_id, month, year, revenue_target, deal_count_target } = body;
 
@@ -51,13 +51,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'user_id, month, year are required' }, { status: 400 });
   }
 
-  db.prepare(`
-    INSERT INTO targets (user_id, month, year, revenue_target, deal_count_target, created_by)
-    VALUES (?, ?, ?, ?, ?, ?)
-    ON CONFLICT(user_id, month, year) DO UPDATE SET
-      revenue_target = excluded.revenue_target,
-      deal_count_target = excluded.deal_count_target
-  `).run(user_id, month, year, revenue_target || null, deal_count_target || null, session.userId);
+  await prisma.targets.upsert({
+    where: { user_id_month_year: { user_id: Number(user_id), month: Number(month), year: Number(year) } },
+    update: {
+      revenue_target: revenue_target ?? null,
+      deal_count_target: deal_count_target ?? null,
+    },
+    create: {
+      user_id: Number(user_id),
+      month: Number(month),
+      year: Number(year),
+      revenue_target: revenue_target ?? null,
+      deal_count_target: deal_count_target ?? null,
+      created_by: session.userId,
+    },
+  });
 
   return NextResponse.json({ ok: true });
 }

@@ -1,52 +1,53 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth';
-import { getDb } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
   const { searchParams } = new URL(req.url);
   const countOnly = searchParams.get('count') === '1';
 
   if (countOnly) {
-    const count = (db.prepare(`
-      SELECT COUNT(*) as c FROM alerts
-      WHERE recipient_id = ? AND acknowledged_at IS NULL
-    `).get(session.userId) as any).c;
+    const count = await prisma.alerts.count({
+      where: { recipient_id: session.userId, acknowledged_at: null },
+    });
     return NextResponse.json({ count });
   }
 
-  const alerts = db.prepare(`
-    SELECT a.*, d.title as deal_title
-    FROM alerts a
-    LEFT JOIN deals d ON a.deal_id = d.id
-    WHERE a.recipient_id = ? AND a.acknowledged_at IS NULL
-    ORDER BY a.created_at DESC
-    LIMIT 20
-  `).all(session.userId);
+  const alerts = await prisma.alerts.findMany({
+    where: { recipient_id: session.userId, acknowledged_at: null },
+    include: { deal: { select: { title: true } } },
+    orderBy: { created_at: 'desc' },
+    take: 20,
+  });
 
-  return NextResponse.json(alerts);
+  const result = alerts.map(a => ({
+    ...a,
+    deal_title: a.deal?.title ?? null,
+    deal: undefined,
+  }));
+
+  return NextResponse.json(result);
 }
 
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
   const { id, all } = await req.json();
 
   if (all) {
-    db.prepare(`
-      UPDATE alerts SET acknowledged_at = CURRENT_TIMESTAMP
-      WHERE recipient_id = ? AND acknowledged_at IS NULL
-    `).run(session.userId);
+    await prisma.alerts.updateMany({
+      where: { recipient_id: session.userId, acknowledged_at: null },
+      data: { acknowledged_at: new Date() },
+    });
   } else if (id) {
-    db.prepare(`
-      UPDATE alerts SET acknowledged_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND recipient_id = ?
-    `).run(id, session.userId);
+    await prisma.alerts.updateMany({
+      where: { id: Number(id), recipient_id: session.userId },
+      data: { acknowledged_at: new Date() },
+    });
   }
 
   return NextResponse.json({ ok: true });

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { signToken, cookieOptions, COOKIE_NAME } from '@/lib/auth';
 import bcrypt from 'bcryptjs';
 
@@ -10,26 +10,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Email and password required' }, { status: 400 });
     }
 
-    const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email) as any;
-
+    const user = await prisma.users.findUnique({ where: { email } });
     const ip = req.headers.get('x-forwarded-for') || 'unknown';
 
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       if (user) {
-        db.prepare('INSERT INTO login_log (user_id, success, ip_address) VALUES (?, 0, ?)').run(user.id, ip);
+        await prisma.login_log.create({ data: { user_id: user.id, success: 0, ip_address: ip } });
       }
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
-    db.prepare('UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = ?').run(user.id);
-    db.prepare('INSERT INTO login_log (user_id, success, ip_address) VALUES (?, 1, ?)').run(user.id, ip);
+    await prisma.users.update({ where: { id: user.id }, data: { last_login: new Date() } });
+    await prisma.login_log.create({ data: { user_id: user.id, success: 1, ip_address: ip } });
 
     const token = signToken({
       userId: user.id,
       email: user.email,
       role: user.role,
-      zone: user.zone,
+      zone: user.zone ?? null,
       name: user.name,
     });
 
@@ -39,6 +37,7 @@ export async function POST(req: NextRequest) {
     res.cookies.set(COOKIE_NAME, token, cookieOptions());
     return res;
   } catch (e) {
+    console.error('Login error:', e);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

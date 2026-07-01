@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth';
-import { getDb } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 
 export async function GET() {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
-  const users = db.prepare('SELECT id, name, email, role, zone, last_login, created_at FROM users ORDER BY role DESC, name').all();
+  const users = await prisma.users.findMany({
+    select: { id: true, name: true, email: true, role: true, zone: true, last_login: true, created_at: true },
+    orderBy: [{ role: 'desc' }, { name: 'asc' }],
+  });
   return NextResponse.json(users);
 }

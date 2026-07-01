@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model users {
+  id            Int       @id @default(autoincrement())
+  name          String
+  email         String    @unique
+  password_hash String
+  role          String
+  zone          String?
+  last_login    DateTime?
+  created_at    DateTime? @default(now())
+
+  clients_assigned        clients[]         @relation("clients_assigned_to")
+  clients_created         clients[]         @relation("clients_created_by")
+  deals_assigned          deals[]           @relation("deals_assigned_to")
+  deals_created           deals[]           @relation("deals_created_by")
+  deal_activities         deal_activities[]
+  messages_sent           messages[]        @relation("messages_sender")
+  messages_received       messages[]        @relation("messages_recipient")
+  tasks_assigned          tasks[]           @relation("tasks_assigned_to")
+  tasks_created           tasks[]           @relation("tasks_created_by")
+  targets_owned           targets[]         @relation("targets_user")
+  targets_created         targets[]         @relation("targets_created_by")
+  alerts_about            alerts[]          @relation("alerts_about_user")
+  alerts_received         alerts[]          @relation("alerts_recipient")
+}
+
+model clients {
+  id          Int       @id @default(autoincrement())
+  name        String
+  company     String
+  phone       String?
+  email       String?
+  address     String?
+  zone        String
+  assigned_to Int?
+  created_by  Int
+  notes       String?
+  created_at  DateTime? @default(now())
+  updated_at  DateTime? @default(now())
+
+  assigned_user users?    @relation("clients_assigned_to", fields: [assigned_to], references: [id], onDelete: NoAction)
+  creator       users     @relation("clients_created_by",  fields: [created_by],  references: [id], onDelete: NoAction)
+  deals         deals[]
+  tasks         tasks[]
+
+  @@index([zone])
+  @@index([assigned_to])
+}
+
+model deals {
+  id                      Int       @id @default(autoincrement())
+  title                   String
+  client_id               Int
+  assigned_to             Int
+  created_by              Int
+  value                   Float?
+  stage                   String    @default("lead")
+  temperature             String    @default("warm")
+  probability             Float?    @default(0.3)
+  expected_close_date     DateTime?
+  last_contact_date       DateTime?
+  last_contact_summary    String?
+  close_date_change_count Int?      @default(0)
+  notes                   String?
+  loss_reason             String?
+  created_at              DateTime? @default(now())
+  updated_at              DateTime? @default(now())
+
+  client          clients           @relation(fields: [client_id],  references: [id], onDelete: NoAction)
+  assigned_user   users             @relation("deals_assigned_to",  fields: [assigned_to], references: [id], onDelete: NoAction)
+  creator         users             @relation("deals_created_by",   fields: [created_by],  references: [id], onDelete: NoAction)
+  deal_activities deal_activities[]
+  messages        messages[]
+  tasks           tasks[]
+  alerts          alerts[]
+
+  @@index([assigned_to])
+  @@index([stage])
+  @@index([temperature])
+  @@index([client_id])
+  @@index([last_contact_date])
+  @@index([expected_close_date])
+}
+
+model deal_activities {
+  id            Int       @id @default(autoincrement())
+  deal_id       Int
+  user_id       Int
+  activity_type String
+  description   String
+  old_value     String?
+  new_value     String?
+  created_at    DateTime? @default(now())
+
+  deal deals @relation(fields: [deal_id], references: [id], onDelete: NoAction)
+  user users @relation(fields: [user_id], references: [id], onDelete: NoAction)
+
+  @@index([deal_id])
+  @@index([user_id])
+  @@index([created_at])
+}
+
+model tasks {
+  id              Int       @id @default(autoincrement())
+  title           String
+  description     String?
+  created_by      Int
+  assigned_to     Int
+  deal_id         Int?
+  client_id       Int?
+  due_date        DateTime
+  priority        String?   @default("medium")
+  status          String?   @default("pending")
+  completion_note String?
+  completed_at    DateTime?
+  created_at      DateTime? @default(now())
+  updated_at      DateTime? @default(now())
+
+  creator       users    @relation("tasks_created_by",  fields: [created_by],  references: [id], onDelete: NoAction)
+  assigned_user users    @relation("tasks_assigned_to", fields: [assigned_to], references: [id], onDelete: NoAction)
+  deal          deals?   @relation(fields: [deal_id],   references: [id], onDelete: NoAction)
+  client        clients? @relation(fields: [client_id], references: [id], onDelete: NoAction)
+
+  @@index([assigned_to])
+  @@index([status])
+  @@index([due_date])
+  @@index([deal_id])
+}
+
+model messages {
+  id           Int       @id @default(autoincrement())
+  sender_id    Int
+  recipient_id Int
+  subject      String?
+  content      String
+  deal_id      Int?
+  read_at      DateTime?
+  created_at   DateTime? @default(now())
+
+  sender    users  @relation("messages_sender",    fields: [sender_id],    references: [id], onDelete: NoAction)
+  recipient users  @relation("messages_recipient", fields: [recipient_id], references: [id], onDelete: NoAction)
+  deal      deals? @relation(fields: [deal_id],    references: [id], onDelete: NoAction)
+
+  @@index([recipient_id])
+  @@index([sender_id])
+  @@index([read_at])
+}
+
+model targets {
+  id                      Int       @id @default(autoincrement())
+  user_id                 Int
+  month                   Int
+  year                    Int
+  revenue_target          Float?
+  deal_count_target       Int?
+  pipeline_coverage_target Float?   @default(2.5)
+  created_by              Int
+  created_at              DateTime? @default(now())
+
+  user    users @relation("targets_user",       fields: [user_id],   references: [id], onDelete: NoAction)
+  creator users @relation("targets_created_by", fields: [created_by], references: [id], onDelete: NoAction)
+
+  @@unique([user_id, month, year])
+  @@index([user_id, month, year])
+}
+
+model alerts {
+  id              Int       @id @default(autoincrement())
+  rule_type       String
+  severity        String
+  message         String
+  deal_id         Int?
+  about_user_id   Int?
+  recipient_id    Int
+  acknowledged_at DateTime?
+  created_at      DateTime? @default(now())
+
+  deal         deals? @relation(fields: [deal_id],       references: [id], onDelete: Cascade)
+  about_user   users? @relation("alerts_about_user",   fields: [about_user_id], references: [id], onDelete: Cascade)
+  recipient    users  @relation("alerts_recipient",    fields: [recipient_id],  references: [id], onDelete: Cascade)
+
+  @@index([recipient_id, created_at(sort: Desc)])
+  @@index([rule_type, deal_id, created_at])
+}
+
+model login_log {
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  success    Int
+  ip_address String?
+  created_at DateTime? @default(now())
+
+  @@index([user_id])
+  @@index([created_at])
+}

@@ -1,22 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from '@/lib/auth';
-import { getDb } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
+import { Prisma } from '@prisma/client';
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
   const { searchParams } = new URL(req.url);
   const status = searchParams.get('status');
 
   // Auto-mark overdue tasks
-  db.prepare(`
-    UPDATE tasks SET status = 'overdue'
-    WHERE status IN ('pending','in_progress') AND due_date < date('now')
-  `).run();
+  await prisma.tasks.updateMany({
+    where: {
+      status: { in: ['pending', 'in_progress'] },
+      due_date: { lt: new Date() },
+    },
+    data: { status: 'overdue' },
+  });
 
-  let query = `
+  const assignedFilter = session.role === 'manager'
+    ? Prisma.sql`AND t.assigned_to = ${session.userId}`
+    : Prisma.empty;
+  const statusFilter = status ? Prisma.sql`AND t.status = ${status}` : Prisma.empty;
+
+  const tasks = await prisma.$queryRaw<any[]>`
     SELECT t.*,
       u.name as assigned_user_name,
       cu.name as creator_name,
@@ -28,42 +36,40 @@ export async function GET(req: NextRequest) {
     LEFT JOIN deals d ON t.deal_id = d.id
     LEFT JOIN clients c ON t.client_id = c.id
     WHERE 1=1
+    ${assignedFilter}
+    ${statusFilter}
+    ORDER BY CASE t.priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END, t.due_date ASC
   `;
-  const params: any[] = [];
 
-  if (session.role === 'manager') {
-    query += ' AND t.assigned_to = ?';
-    params.push(session.userId);
-  }
-
-  if (status) { query += ' AND t.status = ?'; params.push(status); }
-
-  query += ' ORDER BY CASE t.priority WHEN \'urgent\' THEN 1 WHEN \'high\' THEN 2 WHEN \'medium\' THEN 3 ELSE 4 END, t.due_date ASC';
-
-  return NextResponse.json(db.prepare(query).all(...params));
+  return NextResponse.json(tasks);
 }
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession();
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const db = getDb();
   const body = await req.json();
   const { title, description, assigned_to, deal_id, client_id, due_date, priority } = body;
 
   if (!title || !assigned_to || !due_date) {
     return NextResponse.json({ error: 'Title, assignee, and due date are required' }, { status: 400 });
   }
-
-  // Managers can only assign tasks to themselves
   if (session.role === 'manager' && Number(assigned_to) !== session.userId) {
     return NextResponse.json({ error: 'Managers can only create tasks for themselves' }, { status: 403 });
   }
 
-  const result = db.prepare(`
-    INSERT INTO tasks (title, description, created_by, assigned_to, deal_id, client_id, due_date, priority)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(title, description || null, session.userId, assigned_to, deal_id || null, client_id || null, due_date, priority || 'medium');
+  const task = await prisma.tasks.create({
+    data: {
+      title,
+      description: description || null,
+      created_by: session.userId,
+      assigned_to: Number(assigned_to),
+      deal_id: deal_id ? Number(deal_id) : null,
+      client_id: client_id ? Number(client_id) : null,
+      due_date: new Date(due_date),
+      priority: priority || 'medium',
+    },
+  });
 
-  return NextResponse.json({ id: result.lastInsertRowid }, { status: 201 });
+  return NextResponse.json({ id: task.id }, { status: 201 });
 }
